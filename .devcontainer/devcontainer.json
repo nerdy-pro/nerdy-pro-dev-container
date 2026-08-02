@@ -13,6 +13,13 @@
     "CLAUDE_CODE_OAUTH_TOKEN": "${localEnv:CLAUDE_CODE_OAUTH_TOKEN}"
   },
 
+  // Mirrors template/devcontainer.json so the persistence setup gets exercised too.
+  "mounts": [
+    "source=claude-config-${devcontainerId},target=/home/vscode/.claude,type=volume",
+    "source=command-history-${devcontainerId},target=/commandhistory,type=volume",
+    "source=npm-cache,target=/home/vscode/.npm,type=volume"
+  ],
+
   "customizations": {
     "vscode": {
       "extensions": ["anthropic.claude-code"],

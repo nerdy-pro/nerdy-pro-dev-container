@@ -41,6 +41,45 @@ Global npm packages live in `/usr/local/share/npm-global`, owned by `vscode`. Th
 `npm i -g` and `claude update` work without sudo, and the directory isn't shadowed if you
 mount a volume over `$HOME`.
 
+## What persists across rebuilds
+
+A devcontainer's filesystem is disposable — anything not on a volume is gone when the
+container is rebuilt. The template mounts three:
+
+| volume | path | holds |
+|---|---|---|
+| `claude-config-${devcontainerId}` | `/home/vscode/.claude` | Claude settings, session transcripts, project trust, MCP servers |
+| `command-history-${devcontainerId}` | `/commandhistory` | zsh history |
+| `npm-cache` | `/home/vscode/.npm` | npm cache |
+
+Two details in the image make this work, and both are easy to get wrong:
+
+- **`CLAUDE_CONFIG_DIR=/home/vscode/.claude`.** By default Claude Code writes `~/.claude.json`
+  — project trust, MCP server config, onboarding state — *beside* `~/.claude`, not inside it,
+  so a volume on `~/.claude` alone silently loses it. Setting the config dir consolidates
+  everything under one mount.
+- **The directories are created in the Dockerfile, owned by `vscode`.** A fresh Docker volume
+  inherits the ownership of the image directory it covers; if the path doesn't exist in the
+  image, the mount lands root-owned and the container can't write to it. Creating them up
+  front is what removes the need for a `chown` in `postCreateCommand`.
+
+The npm cache is deliberately **not** scoped by `${devcontainerId}` — it's content-addressed
+and safe to share, and sharing across projects is where the speedup comes from. The other two
+are per-project. Drop the `-${devcontainerId}` suffix on either to share it across all
+projects (e.g. one Claude settings store everywhere); drop a whole line to start clean on
+every rebuild.
+
+Deliberately not persisted:
+
+- **VS Code server and extensions** (`~/.vscode-server`) reinstall on each rebuild. Persisting
+  them is possible but couples the container to a client version and breaks confusingly when
+  they drift — not worth it for a ~20s reinstall.
+- **Globally installed npm packages**, including Claude Code itself, come from the image. That
+  is the point: the image tag determines the toolchain version, so a rebuild can't leave you
+  on a version you can't reproduce.
+- **Git identity and SSH keys** need no volume — Dev Containers copies your host `~/.gitconfig`
+  in and forwards your SSH agent automatically.
+
 ## Dotfiles
 
 Dotfiles are a per-user VS Code setting, not part of this image — add to your **user**
@@ -56,6 +95,11 @@ VS Code clones and runs this in every devcontainer you open. Note the ordering: 
 `install.sh` replaces `~/.zshrc`, it overrides the image's oh-my-zsh config — including the
 `fzf` plugin line. Either keep the image's `.zshrc` and layer on top of it, or re-enable
 `plugins=(git fzf)` in your own.
+
+The same applies to history: the image sets `HISTFILE` as an env var, which oh-my-zsh
+respects because it only defaults `HISTFILE` when unset. But a `.zshrc` that assigns
+`HISTFILE` outright wins over the env var, and history stops landing on the volume. If your
+dotfiles set it, point them at `/commandhistory/.zsh_history`.
 
 ## Publishing
 

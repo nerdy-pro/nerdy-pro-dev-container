@@ -12,13 +12,18 @@
     "CLAUDE_CODE_OAUTH_TOKEN": "${localEnv:CLAUDE_CODE_OAUTH_TOKEN}"
   },
 
-  // Keeps Claude Code's credentials, settings and session history across
-  // container rebuilds. The volume is scoped per project by ${devcontainerId}.
-  // Drop both this and postCreateCommand if you'd rather start clean each time.
+  // State that should survive a container rebuild. The image creates each of
+  // these paths owned by vscode, so the volumes mount writable with no chown.
+  // Drop any line to start clean on every rebuild.
   "mounts": [
-    "source=claude-config-${devcontainerId},target=/home/vscode/.claude,type=volume"
+    // Claude Code: settings, session transcripts, project trust, MCP servers.
+    "source=claude-config-${devcontainerId},target=/home/vscode/.claude,type=volume",
+    // zsh history — HISTFILE points here.
+    "source=command-history-${devcontainerId},target=/commandhistory,type=volume",
+    // npm cache. Deliberately NOT scoped by ${devcontainerId}: it is
+    // content-addressed and safe to share, and sharing is where the speedup is.
+    "source=npm-cache,target=/home/vscode/.npm,type=volume"
   ],
-  "postCreateCommand": "sudo chown -R vscode:vscode /home/vscode/.claude",
 
   "customizations": {
     "vscode": {

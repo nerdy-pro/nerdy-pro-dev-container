@@ -45,4 +45,22 @@ RUN sed -i 's/^plugins=(git)$/plugins=(git fzf)/' /home/vscode/.zshrc
 USER root
 RUN chsh -s /usr/bin/zsh vscode
 
+# --- persistable state -----------------------------------------------------
+# Paths meant to be backed by named volumes in devcontainer.json. A fresh Docker
+# volume inherits the ownership of the image directory it covers, so creating
+# them here as `vscode` is what keeps the mounts from landing root-owned.
+
+# oh-my-zsh only defaults HISTFILE when it is unset, so this wins. History size
+# stays at oh-my-zsh's defaults (HISTSIZE 50000 / SAVEHIST 10000).
+ENV HISTFILE=/commandhistory/.zsh_history
+
+# Without this, Claude Code writes ~/.claude.json (project trust, MCP servers,
+# onboarding state) *next to* ~/.claude rather than inside it, and a volume on
+# ~/.claude alone would silently miss it. Pointing the config dir at ~/.claude
+# consolidates everything under one mount.
+ENV CLAUDE_CONFIG_DIR=/home/vscode/.claude
+
+RUN mkdir -p /commandhistory /home/vscode/.claude /home/vscode/.npm \
+    && chown vscode:vscode /commandhistory /home/vscode/.claude /home/vscode/.npm
+
 USER vscode
