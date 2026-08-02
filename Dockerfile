@@ -45,6 +45,23 @@ RUN sed -i 's/^plugins=(git)$/plugins=(git fzf)/' /home/vscode/.zshrc
 USER root
 RUN chsh -s /usr/bin/zsh vscode
 
+# --- git over SSH ----------------------------------------------------------
+# Nothing is configured here on purpose. ssh keeps its default
+# StrictHostKeyChecking=ask, so the first connection to a git server prints the
+# host's fingerprint and waits for you to confirm it: no key is ever trusted
+# without a human looking at it. No known_hosts is baked in or mounted either.
+#
+# The cost is that first contact has to happen in an interactive terminal. `ask`
+# cannot prompt without a TTY, so if the first thing to reach a new host is
+# VS Code's Source Control button, a postCreateCommand, a submodule fetch or
+# Claude Code, it fails with "Host key verification failed" — which git then
+# reports as "make sure you have the correct access rights", pointing at the
+# wrong problem. Connect once from the container terminal to accept a new host;
+# everything headless works from then on.
+#
+# Persisting ~/.ssh (see below) is what keeps that to one confirmation per host
+# ever, rather than one per rebuild.
+
 # --- persistable state -----------------------------------------------------
 # Paths meant to be backed by named volumes in devcontainer.json. A fresh Docker
 # volume inherits the ownership of the image directory it covers, so creating
@@ -60,7 +77,9 @@ ENV HISTFILE=/commandhistory/.zsh_history
 # consolidates everything under one mount.
 ENV CLAUDE_CONFIG_DIR=/home/vscode/.claude
 
-RUN mkdir -p /commandhistory /home/vscode/.claude /home/vscode/.npm \
-    && chown vscode:vscode /commandhistory /home/vscode/.claude /home/vscode/.npm
+RUN mkdir -p /commandhistory /home/vscode/.claude /home/vscode/.npm /home/vscode/.ssh \
+    && chown vscode:vscode /commandhistory /home/vscode/.claude /home/vscode/.npm \
+                           /home/vscode/.ssh \
+    && chmod 700 /home/vscode/.ssh
 
 USER vscode

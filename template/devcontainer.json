@@ -22,7 +22,12 @@
     "source=command-history-${devcontainerId},target=/commandhistory,type=volume",
     // npm cache. Deliberately NOT scoped by ${devcontainerId}: it is
     // content-addressed and safe to share, and sharing is where the speedup is.
-    "source=npm-cache,target=/home/vscode/.npm,type=volume"
+    "source=npm-cache,target=/home/vscode/.npm,type=volume",
+    // known_hosts written by StrictHostKeyChecking=accept-new on first contact
+    // with a git server. Shared across projects on purpose: host keys are not
+    // project state, and one shared store means one trust-on-first-use window
+    // instead of a fresh one per project per rebuild.
+    "source=ssh-known-hosts,target=/home/vscode/.ssh,type=volume"
   ],
 
   "customizations": {

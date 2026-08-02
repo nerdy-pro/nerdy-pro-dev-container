@@ -17,7 +17,8 @@
   "mounts": [
     "source=claude-config-${devcontainerId},target=/home/vscode/.claude,type=volume",
     "source=command-history-${devcontainerId},target=/commandhistory,type=volume",
-    "source=npm-cache,target=/home/vscode/.npm,type=volume"
+    "source=npm-cache,target=/home/vscode/.npm,type=volume",
+    "source=ssh-known-hosts,target=/home/vscode/.ssh,type=volume"
   ],
 
   "customizations": {

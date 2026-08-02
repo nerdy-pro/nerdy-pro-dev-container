@@ -255,6 +255,69 @@ commands take it via prompt or stdin, and `secret-tool store` reads from stdin t
 Regardless of platform, the template reads the token from the environment specifically so it
 stays out of the repo — don't paste it into `devcontainer.json`, which is a tracked file.
 
+## Git authentication
+
+Yes — you can commit and push from inside the container, and there is nothing to configure
+for the common case. VS Code Dev Containers handles two things automatically:
+
+- **Your identity.** Your host `~/.gitconfig` is copied in, so `user.name` and `user.email`
+  are already set and commits are attributed correctly.
+- **Your SSH keys.** Your host `ssh-agent` is forwarded into the container. The keys
+  themselves never enter it — signing happens on your machine, over the forwarded socket.
+  Check what will be available with `ssh-add -l` on the host; if that is empty, run
+  `ssh-add` (macOS: `ssh-add --apple-use-keychain ~/.ssh/id_ed25519`) before opening.
+
+For HTTPS remotes rather than SSH, VS Code supplies a credential helper backed by its own
+GitHub sign-in, so those work without a token in the container too.
+
+**Host keys are the part that isn't automatic.** No `known_hosts` is baked into the image or
+mounted from your machine, so first contact with a git server has nothing to verify against.
+ssh's default `StrictHostKeyChecking=ask` cannot prompt without a TTY, so it fails outright —
+and git reports it in a way that sends you hunting for the wrong problem:
+
+```
+Host key verification failed.
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+```
+
+Your keys are fine there; it never got as far as offering them.
+
+**The fix is to make first contact yourself, from the container's terminal.** ssh keeps its
+default `ask`, so it shows you the fingerprint and waits:
+
+```
+The authenticity of host 'github.com (140.82.121.4)' can't be established.
+ED25519 key fingerprint is SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU
+Are you sure you want to continue connecting (yes/no/[fingerprint])? yes
+```
+
+Nothing is trusted without a human looking at it. Because the template puts **`~/.ssh` on a
+shared volume**, that confirmation is recorded once and reused — one `yes` per host *ever*,
+not one per rebuild. Every headless operation against that host works from then on: Source
+Control buttons, scripts, Claude Code.
+
+The volume is deliberately not scoped per project. Host keys aren't project state, and one
+shared store means one confirmation rather than one per project.
+
+> **Ordering is the thing to remember.** `ask` cannot prompt without a TTY, so whatever
+> touches a *new* host first has to be you, in a terminal. If a `postCreateCommand`, a
+> submodule fetch, or Claude Code gets there first, it fails with the misleading error above.
+> `git ls-remote` in the container terminal is enough to accept a host up front.
+>
+> If you would rather not think about ordering, `StrictHostKeyChecking accept-new` in
+> `/etc/ssh/ssh_config.d/` records the key on first contact instead of asking. That's
+> trust-on-first-use — it trusts the network at that moment rather than your eyes — and it is
+> the deliberate tradeoff this image does *not* make.
+
+> **`~/.ssh/config` is not copied in.** Only the agent is forwarded. If a repo's remote uses
+> a `Host` alias defined in your config — say `git@my-alias:org/repo.git` where the config
+> maps `my-alias` to a real hostname and a specific key — that alias does not exist inside
+> the container and the remote will fail to resolve. Use the real hostname in remotes you
+> intend to push from a container, or mount your config in as well.
+
 ## What's in the image
 
 Everything below is baked in, so nothing is downloaded at container-create time.
@@ -265,7 +328,8 @@ Everything below is baked in, so nothing is downloaded at container-create time.
 | Node | LTS from NodeSource (v24 at time of writing) |
 | Claude Code | `@anthropic-ai/claude-code`, global npm install |
 | Shell | zsh as `vscode`'s login shell, oh-my-zsh with `git` + `fzf` plugins |
-| Also | git, curl, wget, jq, gpg, fzf, passwordless sudo |
+| SSH | openssh-client, stock host-key checking (see [Git authentication](#git-authentication)) |
+| Also | git, curl, wget, jq, gpg, fzf, openssh-client, passwordless sudo |
 
 The base image already provides git, curl, wget, jq, gpg, zsh and oh-my-zsh, so the
 Dockerfile only adds Node, Claude Code and fzf, and switches the login shell to zsh.
@@ -277,13 +341,14 @@ mount a volume over `$HOME`.
 ## What persists across rebuilds
 
 A devcontainer's filesystem is disposable — anything not on a volume is gone when the
-container is rebuilt. The template mounts three:
+container is rebuilt. The template mounts four:
 
 | volume | path | holds |
 |---|---|---|
 | `claude-config-${devcontainerId}` | `/home/vscode/.claude` | Claude settings, session transcripts, project trust, MCP servers |
 | `command-history-${devcontainerId}` | `/commandhistory` | zsh history |
 | `npm-cache` | `/home/vscode/.npm` | npm cache |
+| `ssh-known-hosts` | `/home/vscode/.ssh` | git server host keys accepted on first contact |
 
 Two details in the image make this work, and both are easy to get wrong:
 
@@ -292,15 +357,17 @@ Two details in the image make this work, and both are easy to get wrong:
   so a volume on `~/.claude` alone silently loses it. Setting the config dir consolidates
   everything under one mount.
 - **The directories are created in the Dockerfile, owned by `vscode`.** A fresh Docker volume
-  inherits the ownership of the image directory it covers; if the path doesn't exist in the
-  image, the mount lands root-owned and the container can't write to it. Creating them up
-  front is what removes the need for a `chown` in `postCreateCommand`.
+  inherits the ownership *and mode* of the image directory it covers; if the path doesn't
+  exist in the image, the mount lands root-owned and the container can't write to it. Creating
+  them up front is what removes the need for a `chown` in `postCreateCommand` — and for
+  `~/.ssh` it also carries the `700` that ssh refuses to work without.
 
-The npm cache is deliberately **not** scoped by `${devcontainerId}` — it's content-addressed
-and safe to share, and sharing across projects is where the speedup comes from. The other two
-are per-project. Drop the `-${devcontainerId}` suffix on either to share it across all
-projects (e.g. one Claude settings store everywhere); drop a whole line to start clean on
-every rebuild.
+Two of the volumes are deliberately **not** scoped by `${devcontainerId}`. The npm cache is
+content-addressed and safe to share, and sharing across projects is where the speedup comes
+from. Host keys aren't project state either, and one shared store means one trust-on-first-use
+window rather than a fresh one per project. The other two are per-project — drop the
+`-${devcontainerId}` suffix to share those too (e.g. one Claude settings store everywhere), or
+drop a whole line to start clean on every rebuild.
 
 Deliberately not persisted:
 
