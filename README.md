@@ -18,6 +18,9 @@ a dev container is a pull rather than a multi-minute build.
 **Requirements:** Docker, [Visual Studio Code](https://code.visualstudio.com/), and the
 [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers).
 
+📦 **Project page:**
+[nerdy.pro/open-source/nerdy-pro-dev-container](https://nerdy.pro/open-source/nerdy-pro-dev-container)
+
 | | |
 |---|---|
 | **Image** | `ghcr.io/nerdy-pro/nerdy-pro-dev-container` |
@@ -25,6 +28,7 @@ a dev container is a pull rather than a multi-minute build.
 | **Architectures** | `linux/amd64`, `linux/arm64` |
 | **Includes** | Node.js LTS, Claude Code, zsh + oh-my-zsh, fzf, git, openssh-client |
 | **User** | `vscode` (uid 1000, passwordless sudo) |
+| **Project page** | [nerdy.pro/open-source/nerdy-pro-dev-container](https://nerdy.pro/open-source/nerdy-pro-dev-container) |
 | **License** | MIT |
 
 ### Contents
