@@ -33,7 +33,7 @@ a dev container is a pull rather than a multi-minute build.
 
 ### Contents
 
-- [Quick start](#quick-start-add-the-image-to-a-project)
+- [Quick start](#quick-start-add-the-image-to-a-project) — see also [AGENTS.md](AGENTS.md) if an agent is doing it for you
 - [How to get a CLAUDE_CODE_OAUTH_TOKEN](#how-to-get-a-claude_code_oauth_token) — macOS, Linux, Windows
 - [Git authentication](#git-authentication) — commit and push from the container
 - [What's in the image](#whats-in-the-image)
@@ -57,6 +57,13 @@ and change `"name"`. Then "Reopen in Container". The minimal version is one line
 
 Claude Code inside the container authenticates with `CLAUDE_CODE_OAUTH_TOKEN`, forwarded
 from your machine by the `remoteEnv` block in the template — see below.
+
+> **Having an AI agent do this step for you?** Point it at
+> [template/devcontainer.json](template/devcontainer.json) and tell it to copy that file
+> verbatim. Left to its own judgment, an agent will often invent a way to propagate Claude
+> Code auth from the host via file mounts, or add a `git config` step to `postCreateCommand`
+> — neither is needed, and both are wrong for this image. See
+> [AGENTS.md](AGENTS.md) for specifics.
 
 ## How to get a CLAUDE_CODE_OAUTH_TOKEN
 
