@@ -10,15 +10,17 @@ the following two things, which are the most common mistakes agents make here.
 
 This image does not read, copy, or mount any host Claude Code state — not `~/.claude`, not
 `~/.claude.json`, not a keychain entry — to authenticate inside the container. The only
-supported mechanism is the `CLAUDE_CODE_OAUTH_TOKEN` environment variable, forwarded through
-`remoteEnv` as `${localEnv:CLAUDE_CODE_OAUTH_TOKEN}`.
+supported mechanism is the `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` environment
+variable, forwarded through `remoteEnv` as `${localEnv:CLAUDE_CODE_OAUTH_TOKEN}` /
+`${localEnv:ANTHROPIC_API_KEY}` — both are already forwarded by the template, so there is
+nothing to add for either credential type.
 
 The `claude-config-${devcontainerId}` mount in the template is a **named Docker volume**, not
 a host bind mount. It persists in-container session state across rebuilds; it does not carry
 credentials in from the host. Do not change it to a bind mount, and do not add one of your
 own pointed at the host's `~/.claude`.
 
-See README.md → "How to get a CLAUDE_CODE_OAUTH_TOKEN".
+See README.md → "Authenticating Claude Code".
 
 ## Do NOT add a git config step
 

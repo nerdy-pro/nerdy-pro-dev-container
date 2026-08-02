@@ -7,9 +7,14 @@
 
   "remoteUser": "vscode",
 
-  // Forwarded from the host shell. Generate one with `claude setup-token`.
+  // Forwarded from the host shell. Set whichever credential you have — an
+  // unset one resolves to an empty string, which Claude Code treats as
+  // absent, so there's nothing to remove if you only use one.
   "remoteEnv": {
-    "CLAUDE_CODE_OAUTH_TOKEN": "${localEnv:CLAUDE_CODE_OAUTH_TOKEN}"
+    // Subscription auth. Generate with `claude setup-token`.
+    "CLAUDE_CODE_OAUTH_TOKEN": "${localEnv:CLAUDE_CODE_OAUTH_TOKEN}",
+    // Pay-per-token auth. Create at console.anthropic.com/settings/keys.
+    "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}"
   },
 
   // State that should survive a container rebuild. The image creates each of

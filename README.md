@@ -34,7 +34,7 @@ a dev container is a pull rather than a multi-minute build.
 ### Contents
 
 - [Quick start](#quick-start-add-the-image-to-a-project) — see also [AGENTS.md](AGENTS.md) if an agent is doing it for you
-- [How to get a CLAUDE_CODE_OAUTH_TOKEN](#how-to-get-a-claude_code_oauth_token) — macOS, Linux, Windows
+- [Authenticating Claude Code](#authenticating-claude-code) — OAuth token or API key, macOS/Linux/Windows
 - [Git authentication](#git-authentication) — commit and push from the container
 - [What's in the image](#whats-in-the-image)
 - [What persists across rebuilds](#what-persists-across-rebuilds)
@@ -55,8 +55,9 @@ and change `"name"`. Then "Reopen in Container". The minimal version is one line
 }
 ```
 
-Claude Code inside the container authenticates with `CLAUDE_CODE_OAUTH_TOKEN`, forwarded
-from your machine by the `remoteEnv` block in the template — see below.
+Claude Code inside the container authenticates with `CLAUDE_CODE_OAUTH_TOKEN` or
+`ANTHROPIC_API_KEY`, forwarded from your machine by the `remoteEnv` block in the template —
+see below.
 
 > **Having an AI agent do this step for you?** Point it at
 > [template/devcontainer.json](template/devcontainer.json) and tell it to copy that file
@@ -65,11 +66,20 @@ from your machine by the `remoteEnv` block in the template — see below.
 > — neither is needed, and both are wrong for this image. See
 > [AGENTS.md](AGENTS.md) for specifics.
 
-## How to get a CLAUDE_CODE_OAUTH_TOKEN
+## Authenticating Claude Code
 
-Run `claude setup-token` on your host machine, then expose the resulting token to VS Code as an
-environment variable. The two steps are covered below, with OS-specific instructions for macOS,
-Linux and Windows.
+Claude Code inside the container needs a credential from the host, forwarded through VS Code.
+Two kinds work, and the template forwards both automatically — set whichever one you have and
+nothing else changes:
+
+| | env var | comes from | requires |
+|---|---|---|---|
+| OAuth token | `CLAUDE_CODE_OAUTH_TOKEN` | `claude setup-token` | Claude subscription |
+| API key | `ANTHROPIC_API_KEY` | [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys) | pay-per-token billing |
+
+The rest of this section walks through the OAuth token, since it's the more common path. Every
+step applies equally to `ANTHROPIC_API_KEY` — substitute the variable name, and see the callout
+after step 2 for the per-OS label substitutions.
 
 ### 1. Generate it
 
@@ -82,17 +92,17 @@ claude setup-token
 This requires a Claude subscription and prints a long-lived token. Copy it — you can't
 retrieve it again, though you can re-run the command to issue a new one.
 
-> Paying per-token with an API key rather than a subscription? Use `ANTHROPIC_API_KEY`
-> instead: put your key in that variable everywhere `CLAUDE_CODE_OAUTH_TOKEN` appears below,
-> and rename it in the template's `remoteEnv` block. Nothing else changes.
+> Using an API key instead? Create one at
+> [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys) and skip
+> to step 2 — you already have your credential.
 
 ### 2. Make it visible to VS Code
 
-**This is the part that trips people up.** `${localEnv:CLAUDE_CODE_OAUTH_TOKEN}` is resolved
-from the environment **VS Code itself was launched with** — not from the terminal you typed
-in, and not from the container. Exporting it in an open shell does nothing for a VS Code
-window that is already running. After setting it, fully quit and reopen VS Code, then
-rebuild the container.
+**This is the part that trips people up.** `${localEnv:CLAUDE_CODE_OAUTH_TOKEN}` (or
+`${localEnv:ANTHROPIC_API_KEY}`) is resolved from the environment **VS Code itself was
+launched with** — not from the terminal you typed in, and not from the container. Exporting
+it in an open shell does nothing for a VS Code window that is already running. After setting
+it, fully quit and reopen VS Code, then rebuild the container.
 
 #### macOS
 
@@ -278,21 +288,32 @@ process running as you can read it.
 means the WSL side, so the Windows variable is not what gets read. Set it up inside the WSL
 distribution instead, following the Linux section above.
 
+> **Using an API key instead of an OAuth token?** Same mechanism throughout on every
+> platform — substitute `ANTHROPIC_API_KEY` for `CLAUDE_CODE_OAUTH_TOKEN` in every
+> `export`/`$env:` line above, and swap the label used to store it:
+>
+> | platform | OAuth token label above | API key label |
+> |---|---|---|
+> | macOS Keychain | `-s CLAUDE_CODE_OAUTH_TOKEN` | `-s ANTHROPIC_API_KEY` |
+> | Linux secret-tool | `key oauth-token` | `key api-key` |
+> | Windows file | `.claude-token` | `.anthropic-api-key` |
+
 ### 3. Verify
 
 In a terminal **inside** the running container:
 
 ```sh
-printenv CLAUDE_CODE_OAUTH_TOKEN | head -c 12
+printenv CLAUDE_CODE_OAUTH_TOKEN | head -c 12    # or ANTHROPIC_API_KEY, whichever you set
 ```
 
-That prints the first few characters if the token arrived, and nothing at all if it didn't —
-which means VS Code did not have the variable when it launched. Then just run `claude`; it
-should start without prompting you to log in.
+That prints the first few characters if the credential arrived, and nothing at all if it
+didn't — which means VS Code did not have the variable when it launched. Then just run
+`claude`; it should start without prompting you to log in.
 
 ### A note on handling
 
-Each platform's primary route keeps the token encrypted at rest and out of your dotfiles —
+Everything below says "token" for brevity, but applies identically to an API key. Each
+platform's primary route keeps it encrypted at rest and out of your dotfiles —
 Keychain on macOS, the desktop keyring on Linux, DPAPI on Windows. All three share the same
 shape: the secret store holds the token, the shell profile reads it out at startup, and you
 launch VS Code with `code .` so it inherits that environment.
@@ -471,9 +492,11 @@ Silicon and on x86 machines alike — nothing to configure per platform.
 
 ### Do I need a Claude subscription?
 
-Yes, for `claude setup-token`, which issues the long-lived `CLAUDE_CODE_OAUTH_TOKEN` this image
-expects. If you pay per token with an API key instead, set `ANTHROPIC_API_KEY` in the
-template's `remoteEnv` block and everything else works the same.
+No — either works. A subscription gets you `claude setup-token`'s `CLAUDE_CODE_OAUTH_TOKEN`;
+pay-per-token billing gets you an `ANTHROPIC_API_KEY` from
+[console.anthropic.com](https://console.anthropic.com/settings/keys). The template forwards
+both env vars, so set whichever one you have — nothing to configure. See
+[Authenticating Claude Code](#authenticating-claude-code).
 
 ### Can I commit and push from inside the container?
 
