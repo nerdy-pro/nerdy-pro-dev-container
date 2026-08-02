@@ -43,28 +43,83 @@ rebuild the container.
 
 #### macOS
 
-Add it to your shell profile:
+Keep the token in the login Keychain instead of pasting it into a dotfile:
 
 ```sh
-echo 'export CLAUDE_CODE_OAUTH_TOKEN="<your-token>"' >> ~/.zshrc
+security add-generic-password -a "$USER" -s CLAUDE_CODE_OAUTH_TOKEN -w "<your-token>" -U
 ```
 
+`-U` updates the entry if it already exists, so re-run the exact same command to rotate the
+token later.
+
+Then have your shell read it out at startup:
+
+```sh
+echo 'export CLAUDE_CODE_OAUTH_TOKEN="$(security find-generic-password -a "$USER" -s CLAUDE_CODE_OAUTH_TOKEN -w)"' >> ~/.zshrc
+```
+
+The **single** quotes matter. They write the command substitution into `~/.zshrc` literally,
+so it runs each time a shell starts. With double quotes your shell would expand it right now
+and append the token itself, putting you back to storing it in plaintext.
+
 macOS GUI apps do **not** read your shell profile, so a VS Code launched from the Dock or
-Spotlight still won't see it. Either launch VS Code from a terminal, which inherits the
-shell environment:
+Spotlight still won't see it. Either launch VS Code from a terminal, which inherits the shell
+environment:
 
 ```sh
 code /path/to/project
 ```
 
-…or publish the variable to the GUI session, which makes Dock launches work too:
+This is the recommended path — it needs nothing beyond the `export` above.
 
-```sh
-launchctl setenv CLAUDE_CODE_OAUTH_TOKEN "<your-token>"
+<details>
+<summary>…or make Dock and Spotlight launches work too (LaunchAgent)</summary>
+
+GUI apps inherit their environment from launchd, so the variable has to be published there
+with `launchctl setenv`. That has to happen at login, before you launch anything, which means
+a LaunchAgent. Save as `~/Library/LaunchAgents/com.nerdy-pro.claude-token.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.nerdy-pro.claude-token</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>launchctl setenv CLAUDE_CODE_OAUTH_TOKEN "$(security find-generic-password -a "$(id -un)" -s CLAUDE_CODE_OAUTH_TOKEN -w)"</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+</dict>
+</plist>
 ```
 
-`launchctl setenv` is cleared on reboot. Launching via `code .` is the less fragile habit;
-if you want the Dock to work permanently, wrap that command in a LaunchAgent.
+Load it once; it runs at every login thereafter:
+
+```sh
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.nerdy-pro.claude-token.plist
+```
+
+It uses `id -un` rather than `$USER` deliberately: LaunchAgents run with a minimal
+environment in which `$USER` is unset, so the `$USER` spelling looks correct and silently
+resolves to the wrong account.
+
+> **Do not put `launchctl setenv` in `~/.zshrc` as a shortcut.** It writes only to the
+> launchd domain, never to the shell that ran it — so the variable ends up unset in your
+> terminal *and* in anything launched from it, breaking `code .` while only half-fixing Dock
+> launches: after a reboot the launchd domain stays empty until you happen to open a
+> terminal. If you want it in `~/.zshrc` anyway, it has to be *in addition to* the `export`
+> line, not instead of it.
+
+Either `launchctl` route copies the token out of the Keychain into your launchd session,
+where any process running as you can read it back with `launchctl getenv`. Launching via
+`code .` keeps it scoped to your shell and its children.
+
+</details>
 
 #### Linux
 
@@ -115,10 +170,15 @@ should start without prompting you to log in.
 
 ### A note on handling
 
-Every method above stores the token as plaintext in a file owned by your user. Treat it like
-a password: keep those files at mode `600`, and never commit one. The template reads the
-token from the environment specifically so it stays out of the repo — don't paste it into
-`devcontainer.json`, which is a tracked file.
+The macOS route above keeps the token in the Keychain, encrypted at rest and never written
+into a dotfile. The Linux and Windows routes store it in plaintext — in a file owned by your
+user, or in the user registry hive respectively. Treat those like a password: keep the files
+at mode `600` and never commit one. (`gnome-keyring`/`secret-tool` and Windows Credential
+Manager can be substituted the same way the Keychain is used above, at the cost of a more
+involved shell profile.)
+
+Regardless of platform, the template reads the token from the environment specifically so it
+stays out of the repo — don't paste it into `devcontainer.json`, which is a tracked file.
 
 ## What's in the image
 
