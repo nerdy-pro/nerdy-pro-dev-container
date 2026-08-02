@@ -475,3 +475,11 @@ both exist, but 26.04 is only published as `ubuntu26.04`. Check with:
 ```sh
 curl -s https://mcr.microsoft.com/v2/devcontainers/base/tags/list | jq -r '.tags[]' | grep ubuntu
 ```
+
+## License
+
+[MIT](LICENSE) — © 2026 Nerdy Pro.
+
+Covers this repository: the Dockerfile, the devcontainer templates and the docs. Software
+installed *into* the image keeps its own license — Ubuntu, Node.js, zsh, fzf, and Claude
+Code, whose terms are Anthropic's.
