@@ -1,0 +1,24 @@
+// This repo's own devcontainer — builds the Dockerfile locally instead of
+// pulling from GHCR, so you can test image changes before publishing them.
+{
+  "name": "nerdy-pro-dev-container (local build)",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": ".."
+  },
+
+  "remoteUser": "vscode",
+
+  "remoteEnv": {
+    "CLAUDE_CODE_OAUTH_TOKEN": "${localEnv:CLAUDE_CODE_OAUTH_TOKEN}"
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": ["anthropic.claude-code"],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "zsh"
+      }
+    }
+  }
+}

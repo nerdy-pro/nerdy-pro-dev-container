@@ -60,12 +60,32 @@ VS Code clones and runs this in every devcontainer you open. Note the ordering: 
 ## Publishing
 
 CI ([.github/workflows/build-image.yml](.github/workflows/build-image.yml)) builds
-`linux/amd64` + `linux/arm64` and pushes to GHCR on push to `main`, weekly, and on manual
-dispatch. The weekly rebuild is what picks up base-image security updates and new Claude
-Code releases — the image has no self-update path at runtime beyond `claude update`.
+`linux/amd64` + `linux/arm64`. **Publishing happens on published GitHub releases only** —
+the release tag is the image version. Pushes to `main`, pull requests touching the
+Dockerfile, and manual dispatch build the image but do not push, so a broken Dockerfile
+surfaces before you tag.
 
-Tags pushed: `latest`, `YYYYMMDD`, and `sha-<short>`. Pin to a dated tag if you want a
-project frozen to a known-good image.
+Cut a release to ship:
+
+```sh
+gh release create v1.0.0 --generate-notes
+```
+
+A `v1.0.0` release publishes four tags:
+
+| tag | moves? |
+|---|---|
+| `1.0.0` | never — pin here for a fully frozen project |
+| `1.0` | on patch releases |
+| `1` | on minor and patch releases |
+| `latest` | on every stable release |
+
+Prereleases (`v2.0.0-rc1`) publish `2.0.0-rc1` and leave `latest` alone.
+
+Because publishing is release-gated, the image no longer refreshes on its own — cutting a
+release is how base-image security updates and new Claude Code versions reach users. To
+rebuild an existing version against newer upstream layers without bumping it, re-run that
+release's workflow run from the Actions tab; it republishes the same tags.
 
 First-time setup:
 

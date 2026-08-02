@@ -1,0 +1,31 @@
+// Drop-in template: copy to `.devcontainer/devcontainer.json` in a project and
+// change "name". Everything else works as-is.
+{
+  "name": "my-project",
+  // Pin to a major (:1) or an exact version (:1.0.0) to freeze the toolchain.
+  "image": "ghcr.io/nerdy-pro/nerdy-pro-dev-container:latest",
+
+  "remoteUser": "vscode",
+
+  // Forwarded from the host shell. Generate one with `claude setup-token`.
+  "remoteEnv": {
+    "CLAUDE_CODE_OAUTH_TOKEN": "${localEnv:CLAUDE_CODE_OAUTH_TOKEN}"
+  },
+
+  // Keeps Claude Code's credentials, settings and session history across
+  // container rebuilds. The volume is scoped per project by ${devcontainerId}.
+  // Drop both this and postCreateCommand if you'd rather start clean each time.
+  "mounts": [
+    "source=claude-config-${devcontainerId},target=/home/vscode/.claude,type=volume"
+  ],
+  "postCreateCommand": "sudo chown -R vscode:vscode /home/vscode/.claude",
+
+  "customizations": {
+    "vscode": {
+      "extensions": ["anthropic.claude-code"],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "zsh"
+      }
+    }
+  }
+}
