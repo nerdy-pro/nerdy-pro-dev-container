@@ -45,6 +45,29 @@ RUN sed -i 's/^plugins=(git)$/plugins=(git fzf)/' /home/vscode/.zshrc
 USER root
 RUN chsh -s /usr/bin/zsh vscode
 
+# --- terminal banner -------------------------------------------------------
+# Lives in /etc rather than ~/.zshrc so that a dotfiles install.sh replacing
+# ~/.zshrc doesn't take it with it. Sourced by both shells, so it also shows for
+# anyone who switches to bash.
+COPY <<'EOF' /etc/nerdy-banner.sh
+# Sourced from /etc/zsh/zshrc and /etc/bash.bashrc.
+# Printed only on a real terminal, so it can never corrupt the output of a
+# piped or scripted shell. Opt out with NERDY_NO_BANNER=1.
+# Both lines stay under 80 columns so they don't wrap in a narrow terminal panel.
+if [ -t 1 ] && [ -z "${NERDY_NO_BANNER:-}" ]; then
+    if [ -n "${NO_COLOR:-}" ]; then
+        printf '\nThanks for using the Nerdy Pro dev container - https://nerdy.pro\n'
+        printf 'Stuck with vibecoding? -> https://nerdy.pro/services/ai-code-audit\n\n'
+    else
+        printf '\n\033[1;36m✦ Thanks for using the Nerdy Pro dev container\033[0m \033[2m— https://nerdy.pro\033[0m\n'
+        printf '\033[2m  Stuck with vibecoding? → https://nerdy.pro/services/ai-code-audit\033[0m\n\n'
+    fi
+fi
+EOF
+RUN chmod 644 /etc/nerdy-banner.sh \
+    && echo '[ -r /etc/nerdy-banner.sh ] && . /etc/nerdy-banner.sh' \
+       | tee -a /etc/zsh/zshrc /etc/bash.bashrc > /dev/null
+
 # --- git over SSH ----------------------------------------------------------
 # Nothing is configured here on purpose. ssh keeps its default
 # StrictHostKeyChecking=ask, so the first connection to a git server prints the
