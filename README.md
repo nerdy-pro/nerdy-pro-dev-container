@@ -11,16 +11,114 @@ devcontainer is a pull rather than a multi-minute build.
 Copy [template/devcontainer.json](template/devcontainer.json) to `.devcontainer/devcontainer.json`
 and change `"name"`. Then "Reopen in Container".
 
-Authentication is forwarded from the host shell via `CLAUDE_CODE_OAUTH_TOKEN`. Generate a
-token once with `claude setup-token` and export it from your host `~/.zshrc`:
+Claude Code inside the container authenticates with `CLAUDE_CODE_OAUTH_TOKEN`, forwarded
+from your machine by the `remoteEnv` block in the template — see below.
+
+## Getting CLAUDE_CODE_OAUTH_TOKEN
+
+Two steps: generate the token once, then make it visible to VS Code on your OS.
+
+### 1. Generate it
+
+On your **host** machine, not in the container, with Claude Code installed:
 
 ```sh
-export CLAUDE_CODE_OAUTH_TOKEN="sk-ant-oat..."
+claude setup-token
 ```
 
-VS Code reads that variable from the environment it was launched with — if you export it in
-a shell after VS Code is already running, restart VS Code (or launch it with `code .` from
-that shell) before rebuilding the container.
+This requires a Claude subscription and prints a long-lived token. Copy it — you can't
+retrieve it again, though you can re-run the command to issue a new one.
+
+> Paying per-token with an API key rather than a subscription? Use `ANTHROPIC_API_KEY`
+> instead: put your key in that variable everywhere `CLAUDE_CODE_OAUTH_TOKEN` appears below,
+> and rename it in the template's `remoteEnv` block. Nothing else changes.
+
+### 2. Make it visible to VS Code
+
+**This is the part that trips people up.** `${localEnv:CLAUDE_CODE_OAUTH_TOKEN}` is resolved
+from the environment **VS Code itself was launched with** — not from the terminal you typed
+in, and not from the container. Exporting it in an open shell does nothing for a VS Code
+window that is already running. After setting it, fully quit and reopen VS Code, then
+rebuild the container.
+
+#### macOS
+
+Add it to your shell profile:
+
+```sh
+echo 'export CLAUDE_CODE_OAUTH_TOKEN="<your-token>"' >> ~/.zshrc
+```
+
+macOS GUI apps do **not** read your shell profile, so a VS Code launched from the Dock or
+Spotlight still won't see it. Either launch VS Code from a terminal, which inherits the
+shell environment:
+
+```sh
+code /path/to/project
+```
+
+…or publish the variable to the GUI session, which makes Dock launches work too:
+
+```sh
+launchctl setenv CLAUDE_CODE_OAUTH_TOKEN "<your-token>"
+```
+
+`launchctl setenv` is cleared on reboot. Launching via `code .` is the less fragile habit;
+if you want the Dock to work permanently, wrap that command in a LaunchAgent.
+
+#### Linux
+
+For terminal-launched VS Code, your shell profile is enough:
+
+```sh
+echo 'export CLAUDE_CODE_OAUTH_TOKEN="<your-token>"' >> ~/.zshrc   # or ~/.bashrc
+```
+
+Desktop launchers (GNOME, KDE) don't source shell profiles either. On systemd-based
+distributions, set it for the whole graphical session:
+
+```sh
+mkdir -p ~/.config/environment.d
+printf 'CLAUDE_CODE_OAUTH_TOKEN=<your-token>\n' > ~/.config/environment.d/claude.conf
+chmod 600 ~/.config/environment.d/claude.conf
+```
+
+Note there are no quotes around the value — these files are not shell scripts, and quotes
+would become part of the token. Log out and back in for it to take effect.
+
+#### Windows
+
+In PowerShell, persist it for your user account:
+
+```powershell
+[Environment]::SetEnvironmentVariable('CLAUDE_CODE_OAUTH_TOKEN', '<your-token>', 'User')
+```
+
+Or via the GUI: Start → "Edit environment variables for your account" → New. Either way,
+restart VS Code afterwards; apps read environment variables at launch.
+
+**Using WSL?** If you open the project inside WSL and then reopen it in a container, "local"
+means the WSL side, so the Windows variable is not what gets read. Set it in the WSL
+distribution's shell profile as in the Linux section above.
+
+### 3. Verify
+
+In a terminal **inside** the running container:
+
+```sh
+printenv CLAUDE_CODE_OAUTH_TOKEN | head -c 12
+```
+
+That prints the first few characters if the token arrived, and nothing at all if it didn't —
+which means VS Code did not have the variable when it launched. Then just run `claude`; it
+should start without prompting you to log in.
+
+### A note on handling
+
+Every method above stores the token as plaintext in a file owned by your user. Treat it like
+a password: keep those files at mode `600`, and never commit one. The template reads the
+token from the environment specifically so it stays out of the repo — don't paste it into
+`devcontainer.json`, which is a tracked file.
 
 ## What's in the image
 
