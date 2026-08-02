@@ -1,0 +1,41 @@
+// Drop-in template: copy to `.devcontainer/devcontainer.json` in a project and
+// change "name". Everything else works as-is.
+{
+  "name": "my-project",
+  // Pin to a major (:1) or an exact version (:1.0.0) to freeze the toolchain.
+  "image": "ghcr.io/nerdy-pro/nerdy-pro-dev-container:latest",
+
+  "remoteUser": "vscode",
+
+  // Forwarded from the host shell. Generate one with `claude setup-token`.
+  "remoteEnv": {
+    "CLAUDE_CODE_OAUTH_TOKEN": "${localEnv:CLAUDE_CODE_OAUTH_TOKEN}"
+  },
+
+  // State that should survive a container rebuild. The image creates each of
+  // these paths owned by vscode, so the volumes mount writable with no chown.
+  // Drop any line to start clean on every rebuild.
+  "mounts": [
+    // Claude Code: settings, session transcripts, project trust, MCP servers.
+    "source=claude-config-${devcontainerId},target=/home/vscode/.claude,type=volume",
+    // zsh history — HISTFILE points here.
+    "source=command-history-${devcontainerId},target=/commandhistory,type=volume",
+    // npm cache. Deliberately NOT scoped by ${devcontainerId}: it is
+    // content-addressed and safe to share, and sharing is where the speedup is.
+    "source=npm-cache,target=/home/vscode/.npm,type=volume",
+    // known_hosts written by StrictHostKeyChecking=accept-new on first contact
+    // with a git server. Shared across projects on purpose: host keys are not
+    // project state, and one shared store means one trust-on-first-use window
+    // instead of a fresh one per project per rebuild.
+    "source=ssh-known-hosts,target=/home/vscode/.ssh,type=volume"
+  ],
+
+  "customizations": {
+    "vscode": {
+      "extensions": ["anthropic.claude-code"],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "zsh"
+      }
+    }
+  }
+}

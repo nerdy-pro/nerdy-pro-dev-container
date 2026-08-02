@@ -11,16 +11,312 @@ devcontainer is a pull rather than a multi-minute build.
 Copy [template/devcontainer.json](template/devcontainer.json) to `.devcontainer/devcontainer.json`
 and change `"name"`. Then "Reopen in Container".
 
-Authentication is forwarded from the host shell via `CLAUDE_CODE_OAUTH_TOKEN`. Generate a
-token once with `claude setup-token` and export it from your host `~/.zshrc`:
+Claude Code inside the container authenticates with `CLAUDE_CODE_OAUTH_TOKEN`, forwarded
+from your machine by the `remoteEnv` block in the template — see below.
+
+## Getting CLAUDE_CODE_OAUTH_TOKEN
+
+Two steps: generate the token once, then make it visible to VS Code on your OS.
+
+### 1. Generate it
+
+On your **host** machine, not in the container, with Claude Code installed:
 
 ```sh
-export CLAUDE_CODE_OAUTH_TOKEN="sk-ant-oat..."
+claude setup-token
 ```
 
-VS Code reads that variable from the environment it was launched with — if you export it in
-a shell after VS Code is already running, restart VS Code (or launch it with `code .` from
-that shell) before rebuilding the container.
+This requires a Claude subscription and prints a long-lived token. Copy it — you can't
+retrieve it again, though you can re-run the command to issue a new one.
+
+> Paying per-token with an API key rather than a subscription? Use `ANTHROPIC_API_KEY`
+> instead: put your key in that variable everywhere `CLAUDE_CODE_OAUTH_TOKEN` appears below,
+> and rename it in the template's `remoteEnv` block. Nothing else changes.
+
+### 2. Make it visible to VS Code
+
+**This is the part that trips people up.** `${localEnv:CLAUDE_CODE_OAUTH_TOKEN}` is resolved
+from the environment **VS Code itself was launched with** — not from the terminal you typed
+in, and not from the container. Exporting it in an open shell does nothing for a VS Code
+window that is already running. After setting it, fully quit and reopen VS Code, then
+rebuild the container.
+
+#### macOS
+
+Keep the token in the login Keychain instead of pasting it into a dotfile:
+
+```sh
+security add-generic-password -a "$USER" -s CLAUDE_CODE_OAUTH_TOKEN -w "<your-token>" -U
+```
+
+`-U` updates the entry if it already exists, so re-run the exact same command to rotate the
+token later.
+
+Then have your shell read it out at startup:
+
+```sh
+echo 'export CLAUDE_CODE_OAUTH_TOKEN="$(security find-generic-password -a "$USER" -s CLAUDE_CODE_OAUTH_TOKEN -w)"' >> ~/.zshrc
+```
+
+The **single** quotes matter. They write the command substitution into `~/.zshrc` literally,
+so it runs each time a shell starts. With double quotes your shell would expand it right now
+and append the token itself, putting you back to storing it in plaintext.
+
+macOS GUI apps do **not** read your shell profile, so a VS Code launched from the Dock or
+Spotlight still won't see it. Either launch VS Code from a terminal, which inherits the shell
+environment:
+
+```sh
+code /path/to/project
+```
+
+This is the recommended path — it needs nothing beyond the `export` above.
+
+<details>
+<summary>…or make Dock and Spotlight launches work too (LaunchAgent)</summary>
+
+GUI apps inherit their environment from launchd, so the variable has to be published there
+with `launchctl setenv`. That has to happen at login, before you launch anything, which means
+a LaunchAgent. Save as `~/Library/LaunchAgents/com.nerdy-pro.claude-token.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.nerdy-pro.claude-token</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>launchctl setenv CLAUDE_CODE_OAUTH_TOKEN "$(security find-generic-password -a "$(id -un)" -s CLAUDE_CODE_OAUTH_TOKEN -w)"</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+</dict>
+</plist>
+```
+
+Load it once; it runs at every login thereafter:
+
+```sh
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.nerdy-pro.claude-token.plist
+```
+
+It uses `id -un` rather than `$USER` deliberately: LaunchAgents run with a minimal
+environment in which `$USER` is unset, so the `$USER` spelling looks correct and silently
+resolves to the wrong account.
+
+> **Do not put `launchctl setenv` in `~/.zshrc` as a shortcut.** It writes only to the
+> launchd domain, never to the shell that ran it — so the variable ends up unset in your
+> terminal *and* in anything launched from it, breaking `code .` while only half-fixing Dock
+> launches: after a reboot the launchd domain stays empty until you happen to open a
+> terminal. If you want it in `~/.zshrc` anyway, it has to be *in addition to* the `export`
+> line, not instead of it.
+
+Either `launchctl` route copies the token out of the Keychain into your launchd session,
+where any process running as you can read it back with `launchctl getenv`. Launching via
+`code .` keeps it scoped to your shell and its children.
+
+</details>
+
+#### Linux
+
+Use the desktop keyring — GNOME Keyring and KWallet both implement the freedesktop Secret
+Service API, so `secret-tool` talks to either:
+
+```sh
+sudo apt install libsecret-tools    # Debian/Ubuntu
+sudo dnf install libsecret          # Fedora
+sudo pacman -S libsecret            # Arch
+```
+
+Store the token. It is read from stdin, so it never reaches your shell history — paste it,
+then press Enter and Ctrl-D:
+
+```sh
+secret-tool store --label="Claude Code token" service claude-code key oauth-token
+```
+
+Then read it back in your shell profile:
+
+```sh
+echo 'export CLAUDE_CODE_OAUTH_TOKEN="$(secret-tool lookup service claude-code key oauth-token)"' >> ~/.zshrc   # or ~/.bashrc
+```
+
+Single quotes, for the same reason as macOS. Then launch VS Code from that terminal with
+`code .`.
+
+The keyring has to be unlocked for the lookup to succeed. It is in a normal graphical
+session, but over a plain SSH login it will fail or hang — so if you share this profile with
+headless machines, guard the line. `pass` (GPG-backed, unlocked by `gpg-agent`) is the usual
+choice when it has to work headless.
+
+<details>
+<summary>…or make desktop-launcher launches work (plaintext)</summary>
+
+Desktop launchers (GNOME, KDE) don't source shell profiles. On systemd-based distributions
+you can set the variable for the whole graphical session instead:
+
+```sh
+mkdir -p ~/.config/environment.d
+printf 'CLAUDE_CODE_OAUTH_TOKEN=<your-token>\n' > ~/.config/environment.d/claude.conf
+chmod 600 ~/.config/environment.d/claude.conf
+```
+
+No quotes around the value — these files are not shell scripts, and quotes would become part
+of the token. Log out and back in for it to take effect.
+
+There is no keyring version of this: systemd builds the session environment from these files
+before any keyring is unlocked, so a `secret-tool` lookup there could not succeed. The
+tradeoff is real — this route means the token sits in cleartext on disk.
+
+</details>
+
+#### Windows
+
+Store the token in a DPAPI-encrypted file. DPAPI derives its key from your Windows account,
+so the file is useless to another account or on another machine, and it needs no extra
+modules. Prompted input keeps the token out of your console history:
+
+```powershell
+Read-Host -AsSecureString -Prompt 'Paste token' |
+  ConvertFrom-SecureString | Set-Content "$HOME\.claude-token"
+```
+
+Read it back from your PowerShell profile (`notepad $PROFILE`):
+
+```powershell
+$env:CLAUDE_CODE_OAUTH_TOKEN =
+  Get-Content "$HOME\.claude-token" | ConvertTo-SecureString | ConvertFrom-SecureString -AsPlainText
+```
+
+Then launch VS Code from that PowerShell session with `code .`.
+
+`ConvertFrom-SecureString -AsPlainText` requires PowerShell 7+. On Windows PowerShell 5.1:
+
+```powershell
+$sec = Get-Content "$HOME\.claude-token" | ConvertTo-SecureString
+$env:CLAUDE_CODE_OAUTH_TOKEN = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
+  [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec))
+```
+
+If you prefer a managed vault, `Microsoft.PowerShell.SecretManagement` with the `SecretStore`
+backend does the same job via `Set-Secret` / `Get-Secret`, at the cost of installing two
+modules and unlocking the vault once per session.
+
+<details>
+<summary>…or make Start Menu launches work (plaintext)</summary>
+
+```powershell
+[Environment]::SetEnvironmentVariable('CLAUDE_CODE_OAUTH_TOKEN', '<your-token>', 'User')
+```
+
+Or via the GUI: Start → "Edit environment variables for your account" → New. Either way,
+restart VS Code afterwards; apps read environment variables at launch.
+
+This writes the token in cleartext to your user registry hive (`HKCU\Environment`), where any
+process running as you can read it.
+
+</details>
+
+**Using WSL?** If you open the project inside WSL and then reopen it in a container, "local"
+means the WSL side, so the Windows variable is not what gets read. Set it up inside the WSL
+distribution instead, following the Linux section above.
+
+### 3. Verify
+
+In a terminal **inside** the running container:
+
+```sh
+printenv CLAUDE_CODE_OAUTH_TOKEN | head -c 12
+```
+
+That prints the first few characters if the token arrived, and nothing at all if it didn't —
+which means VS Code did not have the variable when it launched. Then just run `claude`; it
+should start without prompting you to log in.
+
+### A note on handling
+
+Each platform's primary route keeps the token encrypted at rest and out of your dotfiles —
+Keychain on macOS, the desktop keyring on Linux, DPAPI on Windows. All three share the same
+shape: the secret store holds the token, the shell profile reads it out at startup, and you
+launch VS Code with `code .` so it inherits that environment.
+
+The collapsible fallbacks trade that away. Each one exists because GUI launchers — Dock,
+Spotlight, the GNOME/KDE app grid, the Start Menu — don't inherit a shell environment, and
+the mechanisms that reach them run before any keyring is unlocked. If you use one, the token
+is in cleartext: keep the file at mode `600`, and never commit it.
+
+Whichever route you pick, the token stays out of your shell history: the macOS and Windows
+commands take it via prompt or stdin, and `secret-tool store` reads from stdin too.
+
+Regardless of platform, the template reads the token from the environment specifically so it
+stays out of the repo — don't paste it into `devcontainer.json`, which is a tracked file.
+
+## Git authentication
+
+Yes — you can commit and push from inside the container, and there is nothing to configure
+for the common case. VS Code Dev Containers handles two things automatically:
+
+- **Your identity.** Your host `~/.gitconfig` is copied in, so `user.name` and `user.email`
+  are already set and commits are attributed correctly.
+- **Your SSH keys.** Your host `ssh-agent` is forwarded into the container. The keys
+  themselves never enter it — signing happens on your machine, over the forwarded socket.
+  Check what will be available with `ssh-add -l` on the host; if that is empty, run
+  `ssh-add` (macOS: `ssh-add --apple-use-keychain ~/.ssh/id_ed25519`) before opening.
+
+For HTTPS remotes rather than SSH, VS Code supplies a credential helper backed by its own
+GitHub sign-in, so those work without a token in the container too.
+
+**Host keys are the part that isn't automatic.** No `known_hosts` is baked into the image or
+mounted from your machine, so first contact with a git server has nothing to verify against.
+ssh's default `StrictHostKeyChecking=ask` cannot prompt without a TTY, so it fails outright —
+and git reports it in a way that sends you hunting for the wrong problem:
+
+```
+Host key verification failed.
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+```
+
+Your keys are fine there; it never got as far as offering them.
+
+**The fix is to make first contact yourself, from the container's terminal.** ssh keeps its
+default `ask`, so it shows you the fingerprint and waits:
+
+```
+The authenticity of host 'github.com (140.82.121.4)' can't be established.
+ED25519 key fingerprint is SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU
+Are you sure you want to continue connecting (yes/no/[fingerprint])? yes
+```
+
+Nothing is trusted without a human looking at it. Because the template puts **`~/.ssh` on a
+shared volume**, that confirmation is recorded once and reused — one `yes` per host *ever*,
+not one per rebuild. Every headless operation against that host works from then on: Source
+Control buttons, scripts, Claude Code.
+
+The volume is deliberately not scoped per project. Host keys aren't project state, and one
+shared store means one confirmation rather than one per project.
+
+> **Ordering is the thing to remember.** `ask` cannot prompt without a TTY, so whatever
+> touches a *new* host first has to be you, in a terminal. If a `postCreateCommand`, a
+> submodule fetch, or Claude Code gets there first, it fails with the misleading error above.
+> `git ls-remote` in the container terminal is enough to accept a host up front.
+>
+> If you would rather not think about ordering, `StrictHostKeyChecking accept-new` in
+> `/etc/ssh/ssh_config.d/` records the key on first contact instead of asking. That's
+> trust-on-first-use — it trusts the network at that moment rather than your eyes — and it is
+> the deliberate tradeoff this image does *not* make.
+
+> **`~/.ssh/config` is not copied in.** Only the agent is forwarded. If a repo's remote uses
+> a `Host` alias defined in your config — say `git@my-alias:org/repo.git` where the config
+> maps `my-alias` to a real hostname and a specific key — that alias does not exist inside
+> the container and the remote will fail to resolve. Use the real hostname in remotes you
+> intend to push from a container, or mount your config in as well.
 
 ## What's in the image
 
@@ -32,7 +328,8 @@ Everything below is baked in, so nothing is downloaded at container-create time.
 | Node | LTS from NodeSource (v24 at time of writing) |
 | Claude Code | `@anthropic-ai/claude-code`, global npm install |
 | Shell | zsh as `vscode`'s login shell, oh-my-zsh with `git` + `fzf` plugins |
-| Also | git, curl, wget, jq, gpg, fzf, passwordless sudo |
+| SSH | openssh-client, stock host-key checking (see [Git authentication](#git-authentication)) |
+| Also | git, curl, wget, jq, gpg, fzf, openssh-client, passwordless sudo |
 
 The base image already provides git, curl, wget, jq, gpg, zsh and oh-my-zsh, so the
 Dockerfile only adds Node, Claude Code and fzf, and switches the login shell to zsh.
@@ -40,6 +337,48 @@ Dockerfile only adds Node, Claude Code and fzf, and switches the login shell to 
 Global npm packages live in `/usr/local/share/npm-global`, owned by `vscode`. That means
 `npm i -g` and `claude update` work without sudo, and the directory isn't shadowed if you
 mount a volume over `$HOME`.
+
+## What persists across rebuilds
+
+A devcontainer's filesystem is disposable — anything not on a volume is gone when the
+container is rebuilt. The template mounts four:
+
+| volume | path | holds |
+|---|---|---|
+| `claude-config-${devcontainerId}` | `/home/vscode/.claude` | Claude settings, session transcripts, project trust, MCP servers |
+| `command-history-${devcontainerId}` | `/commandhistory` | zsh history |
+| `npm-cache` | `/home/vscode/.npm` | npm cache |
+| `ssh-known-hosts` | `/home/vscode/.ssh` | git server host keys accepted on first contact |
+
+Two details in the image make this work, and both are easy to get wrong:
+
+- **`CLAUDE_CONFIG_DIR=/home/vscode/.claude`.** By default Claude Code writes `~/.claude.json`
+  — project trust, MCP server config, onboarding state — *beside* `~/.claude`, not inside it,
+  so a volume on `~/.claude` alone silently loses it. Setting the config dir consolidates
+  everything under one mount.
+- **The directories are created in the Dockerfile, owned by `vscode`.** A fresh Docker volume
+  inherits the ownership *and mode* of the image directory it covers; if the path doesn't
+  exist in the image, the mount lands root-owned and the container can't write to it. Creating
+  them up front is what removes the need for a `chown` in `postCreateCommand` — and for
+  `~/.ssh` it also carries the `700` that ssh refuses to work without.
+
+Two of the volumes are deliberately **not** scoped by `${devcontainerId}`. The npm cache is
+content-addressed and safe to share, and sharing across projects is where the speedup comes
+from. Host keys aren't project state either, and one shared store means one trust-on-first-use
+window rather than a fresh one per project. The other two are per-project — drop the
+`-${devcontainerId}` suffix to share those too (e.g. one Claude settings store everywhere), or
+drop a whole line to start clean on every rebuild.
+
+Deliberately not persisted:
+
+- **VS Code server and extensions** (`~/.vscode-server`) reinstall on each rebuild. Persisting
+  them is possible but couples the container to a client version and breaks confusingly when
+  they drift — not worth it for a ~20s reinstall.
+- **Globally installed npm packages**, including Claude Code itself, come from the image. That
+  is the point: the image tag determines the toolchain version, so a rebuild can't leave you
+  on a version you can't reproduce.
+- **Git identity and SSH keys** need no volume — Dev Containers copies your host `~/.gitconfig`
+  in and forwards your SSH agent automatically.
 
 ## Dotfiles
 
@@ -57,15 +396,40 @@ VS Code clones and runs this in every devcontainer you open. Note the ordering: 
 `fzf` plugin line. Either keep the image's `.zshrc` and layer on top of it, or re-enable
 `plugins=(git fzf)` in your own.
 
+The same applies to history: the image sets `HISTFILE` as an env var, which oh-my-zsh
+respects because it only defaults `HISTFILE` when unset. But a `.zshrc` that assigns
+`HISTFILE` outright wins over the env var, and history stops landing on the volume. If your
+dotfiles set it, point them at `/commandhistory/.zsh_history`.
+
 ## Publishing
 
 CI ([.github/workflows/build-image.yml](.github/workflows/build-image.yml)) builds
-`linux/amd64` + `linux/arm64` and pushes to GHCR on push to `main`, weekly, and on manual
-dispatch. The weekly rebuild is what picks up base-image security updates and new Claude
-Code releases — the image has no self-update path at runtime beyond `claude update`.
+`linux/amd64` + `linux/arm64`. **Publishing happens on published GitHub releases only** —
+the release tag is the image version. Pushes to `main`, pull requests touching the
+Dockerfile, and manual dispatch build the image but do not push, so a broken Dockerfile
+surfaces before you tag.
 
-Tags pushed: `latest`, `YYYYMMDD`, and `sha-<short>`. Pin to a dated tag if you want a
-project frozen to a known-good image.
+Cut a release to ship:
+
+```sh
+gh release create v1.0.0 --generate-notes
+```
+
+A `v1.0.0` release publishes four tags:
+
+| tag | moves? |
+|---|---|
+| `1.0.0` | never — pin here for a fully frozen project |
+| `1.0` | on patch releases |
+| `1` | on minor and patch releases |
+| `latest` | on every stable release |
+
+Prereleases (`v2.0.0-rc1`) publish `2.0.0-rc1` and leave `latest` alone.
+
+Because publishing is release-gated, the image no longer refreshes on its own — cutting a
+release is how base-image security updates and new Claude Code versions reach users. To
+rebuild an existing version against newer upstream layers without bumping it, re-run that
+release's workflow run from the Actions tab; it republishes the same tags.
 
 First-time setup:
 
