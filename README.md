@@ -123,14 +123,41 @@ where any process running as you can read it back with `launchctl getenv`. Launc
 
 #### Linux
 
-For terminal-launched VS Code, your shell profile is enough:
+Use the desktop keyring — GNOME Keyring and KWallet both implement the freedesktop Secret
+Service API, so `secret-tool` talks to either:
 
 ```sh
-echo 'export CLAUDE_CODE_OAUTH_TOKEN="<your-token>"' >> ~/.zshrc   # or ~/.bashrc
+sudo apt install libsecret-tools    # Debian/Ubuntu
+sudo dnf install libsecret          # Fedora
+sudo pacman -S libsecret            # Arch
 ```
 
-Desktop launchers (GNOME, KDE) don't source shell profiles either. On systemd-based
-distributions, set it for the whole graphical session:
+Store the token. It is read from stdin, so it never reaches your shell history — paste it,
+then press Enter and Ctrl-D:
+
+```sh
+secret-tool store --label="Claude Code token" service claude-code key oauth-token
+```
+
+Then read it back in your shell profile:
+
+```sh
+echo 'export CLAUDE_CODE_OAUTH_TOKEN="$(secret-tool lookup service claude-code key oauth-token)"' >> ~/.zshrc   # or ~/.bashrc
+```
+
+Single quotes, for the same reason as macOS. Then launch VS Code from that terminal with
+`code .`.
+
+The keyring has to be unlocked for the lookup to succeed. It is in a normal graphical
+session, but over a plain SSH login it will fail or hang — so if you share this profile with
+headless machines, guard the line. `pass` (GPG-backed, unlocked by `gpg-agent`) is the usual
+choice when it has to work headless.
+
+<details>
+<summary>…or make desktop-launcher launches work (plaintext)</summary>
+
+Desktop launchers (GNOME, KDE) don't source shell profiles. On systemd-based distributions
+you can set the variable for the whole graphical session instead:
 
 ```sh
 mkdir -p ~/.config/environment.d
@@ -138,12 +165,49 @@ printf 'CLAUDE_CODE_OAUTH_TOKEN=<your-token>\n' > ~/.config/environment.d/claude
 chmod 600 ~/.config/environment.d/claude.conf
 ```
 
-Note there are no quotes around the value — these files are not shell scripts, and quotes
-would become part of the token. Log out and back in for it to take effect.
+No quotes around the value — these files are not shell scripts, and quotes would become part
+of the token. Log out and back in for it to take effect.
+
+There is no keyring version of this: systemd builds the session environment from these files
+before any keyring is unlocked, so a `secret-tool` lookup there could not succeed. The
+tradeoff is real — this route means the token sits in cleartext on disk.
+
+</details>
 
 #### Windows
 
-In PowerShell, persist it for your user account:
+Store the token in a DPAPI-encrypted file. DPAPI derives its key from your Windows account,
+so the file is useless to another account or on another machine, and it needs no extra
+modules. Prompted input keeps the token out of your console history:
+
+```powershell
+Read-Host -AsSecureString -Prompt 'Paste token' |
+  ConvertFrom-SecureString | Set-Content "$HOME\.claude-token"
+```
+
+Read it back from your PowerShell profile (`notepad $PROFILE`):
+
+```powershell
+$env:CLAUDE_CODE_OAUTH_TOKEN =
+  Get-Content "$HOME\.claude-token" | ConvertTo-SecureString | ConvertFrom-SecureString -AsPlainText
+```
+
+Then launch VS Code from that PowerShell session with `code .`.
+
+`ConvertFrom-SecureString -AsPlainText` requires PowerShell 7+. On Windows PowerShell 5.1:
+
+```powershell
+$sec = Get-Content "$HOME\.claude-token" | ConvertTo-SecureString
+$env:CLAUDE_CODE_OAUTH_TOKEN = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
+  [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec))
+```
+
+If you prefer a managed vault, `Microsoft.PowerShell.SecretManagement` with the `SecretStore`
+backend does the same job via `Set-Secret` / `Get-Secret`, at the cost of installing two
+modules and unlocking the vault once per session.
+
+<details>
+<summary>…or make Start Menu launches work (plaintext)</summary>
 
 ```powershell
 [Environment]::SetEnvironmentVariable('CLAUDE_CODE_OAUTH_TOKEN', '<your-token>', 'User')
@@ -152,9 +216,14 @@ In PowerShell, persist it for your user account:
 Or via the GUI: Start → "Edit environment variables for your account" → New. Either way,
 restart VS Code afterwards; apps read environment variables at launch.
 
+This writes the token in cleartext to your user registry hive (`HKCU\Environment`), where any
+process running as you can read it.
+
+</details>
+
 **Using WSL?** If you open the project inside WSL and then reopen it in a container, "local"
-means the WSL side, so the Windows variable is not what gets read. Set it in the WSL
-distribution's shell profile as in the Linux section above.
+means the WSL side, so the Windows variable is not what gets read. Set it up inside the WSL
+distribution instead, following the Linux section above.
 
 ### 3. Verify
 
@@ -170,12 +239,18 @@ should start without prompting you to log in.
 
 ### A note on handling
 
-The macOS route above keeps the token in the Keychain, encrypted at rest and never written
-into a dotfile. The Linux and Windows routes store it in plaintext — in a file owned by your
-user, or in the user registry hive respectively. Treat those like a password: keep the files
-at mode `600` and never commit one. (`gnome-keyring`/`secret-tool` and Windows Credential
-Manager can be substituted the same way the Keychain is used above, at the cost of a more
-involved shell profile.)
+Each platform's primary route keeps the token encrypted at rest and out of your dotfiles —
+Keychain on macOS, the desktop keyring on Linux, DPAPI on Windows. All three share the same
+shape: the secret store holds the token, the shell profile reads it out at startup, and you
+launch VS Code with `code .` so it inherits that environment.
+
+The collapsible fallbacks trade that away. Each one exists because GUI launchers — Dock,
+Spotlight, the GNOME/KDE app grid, the Start Menu — don't inherit a shell environment, and
+the mechanisms that reach them run before any keyring is unlocked. If you use one, the token
+is in cleartext: keep the file at mode `600`, and never commit it.
+
+Whichever route you pick, the token stays out of your shell history: the macOS and Windows
+commands take it via prompt or stdin, and `secret-tool store` reads from stdin too.
 
 Regardless of platform, the template reads the token from the environment specifically so it
 stays out of the repo — don't paste it into `devcontainer.json`, which is a tracked file.
