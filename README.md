@@ -1,28 +1,64 @@
 # nerdy-pro-dev-container
 
-[![build](https://github.com/nerdy-pro/nerdy-pro-dev-container/actions/workflows/build-image.yml/badge.svg)](https://github.com/nerdy-pro/nerdy-pro-dev-container/actions/workflows/build-image.yml)
-[![release](https://img.shields.io/github/v/release/nerdy-pro/nerdy-pro-dev-container)](https://github.com/nerdy-pro/nerdy-pro-dev-container/releases/latest)
-[![license](https://img.shields.io/github/license/nerdy-pro/nerdy-pro-dev-container)](LICENSE)
-[![ghcr.io](https://img.shields.io/badge/ghcr.io-nerdy--pro%2Fnerdy--pro--dev--container-2496ED?logo=docker&logoColor=white)](https://github.com/nerdy-pro/nerdy-pro-dev-container/pkgs/container/nerdy-pro-dev-container)
+[![Build status](https://github.com/nerdy-pro/nerdy-pro-dev-container/actions/workflows/build-image.yml/badge.svg)](https://github.com/nerdy-pro/nerdy-pro-dev-container/actions/workflows/build-image.yml)
+[![Latest release](https://img.shields.io/github/v/release/nerdy-pro/nerdy-pro-dev-container)](https://github.com/nerdy-pro/nerdy-pro-dev-container/releases/latest)
+[![License: MIT](https://img.shields.io/github/license/nerdy-pro/nerdy-pro-dev-container)](LICENSE)
+[![Container image on ghcr.io](https://img.shields.io/badge/ghcr.io-nerdy--pro%2Fnerdy--pro--dev--container-2496ED?logo=docker&logoColor=white)](https://github.com/nerdy-pro/nerdy-pro-dev-container/pkgs/container/nerdy-pro-dev-container)
 [![Open in Dev Containers](https://img.shields.io/static/v1?label=Dev%20Containers&message=Open&color=blue&logo=visualstudiocode)](https://vscode.dev/redirect?url=vscode%3A%2F%2Fms-vscode-remote.remote-containers%2FcloneInVolume%3Furl%3Dhttps%3A%2F%2Fgithub.com%2Fnerdy-pro%2Fnerdy-pro-dev-container)
 
-Base devcontainer image: **Node LTS + Claude Code + zsh/oh-my-zsh + fzf**, published to
-`ghcr.io/nerdy-pro/nerdy-pro-dev-container`.
+**A prebuilt VS Code dev container image for AI-assisted development.**
+`nerdy-pro-dev-container` is a Docker image built on Ubuntu 26.04 that ships Node.js LTS,
+[Claude Code](https://www.claude.com/product/claude-code), zsh with oh-my-zsh, and fzf. It is
+published for both `linux/amd64` and `linux/arm64` (Apple Silicon) to the GitHub Container
+Registry as `ghcr.io/nerdy-pro/nerdy-pro-dev-container`.
 
-Projects consume the prebuilt image instead of building their own, so opening a
-devcontainer is a pull rather than a multi-minute build.
+Projects reference the published image instead of maintaining their own Dockerfile, so opening
+a dev container is a pull rather than a multi-minute build.
 
-## Use it in a project
+**Requirements:** Docker, [Visual Studio Code](https://code.visualstudio.com/), and the
+[Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers).
+
+| | |
+|---|---|
+| **Image** | `ghcr.io/nerdy-pro/nerdy-pro-dev-container` |
+| **Base** | Ubuntu 26.04 (`mcr.microsoft.com/devcontainers/base`) |
+| **Architectures** | `linux/amd64`, `linux/arm64` |
+| **Includes** | Node.js LTS, Claude Code, zsh + oh-my-zsh, fzf, git, openssh-client |
+| **User** | `vscode` (uid 1000, passwordless sudo) |
+| **License** | MIT |
+
+### Contents
+
+- [Quick start](#quick-start-add-the-image-to-a-project)
+- [How to get a CLAUDE_CODE_OAUTH_TOKEN](#how-to-get-a-claude_code_oauth_token) — macOS, Linux, Windows
+- [Git authentication](#git-authentication) — commit and push from the container
+- [What's in the image](#whats-in-the-image)
+- [What persists across rebuilds](#what-persists-across-rebuilds)
+- [Dotfiles](#dotfiles)
+- [FAQ](#faq)
+- [Publishing](#publishing) · [Local development](#local-development) · [Bumping Ubuntu](#bumping-ubuntu)
+
+## Quick start: add the image to a project
 
 Copy [template/devcontainer.json](template/devcontainer.json) to `.devcontainer/devcontainer.json`
-and change `"name"`. Then "Reopen in Container".
+and change `"name"`. Then "Reopen in Container". The minimal version is one line:
+
+```jsonc
+// .devcontainer/devcontainer.json
+{
+  "name": "my-project",
+  "image": "ghcr.io/nerdy-pro/nerdy-pro-dev-container:latest"
+}
+```
 
 Claude Code inside the container authenticates with `CLAUDE_CODE_OAUTH_TOKEN`, forwarded
 from your machine by the `remoteEnv` block in the template — see below.
 
-## Getting CLAUDE_CODE_OAUTH_TOKEN
+## How to get a CLAUDE_CODE_OAUTH_TOKEN
 
-Two steps: generate the token once, then make it visible to VS Code on your OS.
+Run `claude setup-token` on your host machine, then expose the resulting token to VS Code as an
+environment variable. The two steps are covered below, with OS-specific instructions for macOS,
+Linux and Windows.
 
 ### 1. Generate it
 
@@ -406,6 +442,68 @@ The same applies to history: the image sets `HISTFILE` as an env var, which oh-m
 respects because it only defaults `HISTFILE` when unset. But a `.zshrc` that assigns
 `HISTFILE` outright wins over the env var, and history stops landing on the volume. If your
 dotfiles set it, point them at `/commandhistory/.zsh_history`.
+
+## FAQ
+
+### What is a dev container?
+
+A dev container is a Docker container used as a full-featured development environment, defined
+by a `devcontainer.json` file in your repository. VS Code starts the container, installs its
+server inside it, and runs your editor against that environment instead of your local machine,
+so every contributor gets the same toolchain regardless of their OS.
+
+### Which architectures does this image support?
+
+Both `linux/amd64` and `linux/arm64`. CI builds a multi-architecture manifest, so a single tag
+such as `ghcr.io/nerdy-pro/nerdy-pro-dev-container:1.0.0` resolves to native layers on Apple
+Silicon and on x86 machines alike — nothing to configure per platform.
+
+### Do I need a Claude subscription?
+
+Yes, for `claude setup-token`, which issues the long-lived `CLAUDE_CODE_OAUTH_TOKEN` this image
+expects. If you pay per token with an API key instead, set `ANTHROPIC_API_KEY` in the
+template's `remoteEnv` block and everything else works the same.
+
+### Can I commit and push from inside the container?
+
+Yes. VS Code copies your host `~/.gitconfig` into the container and forwards your SSH agent, so
+commits are attributed correctly and your keys sign without ever entering the container. The
+one manual step is host-key trust: connect once from the container's terminal to accept a new
+git server. See [Git authentication](#git-authentication).
+
+### Does my shell history survive a rebuild?
+
+Yes. `HISTFILE` points at `/commandhistory`, which the template backs with a Docker volume.
+Claude Code's settings and session transcripts, the npm cache, and accepted SSH host keys
+persist the same way. See [What persists across rebuilds](#what-persists-across-rebuilds).
+
+### How do I pin the image to a specific version?
+
+Replace `:latest` with a release tag — `:1.0.0` never moves, `:1.0` moves on patch releases,
+and `:1` moves on minor and patch releases. Pin to `:1.0.0` when you want a project frozen to a
+known-good toolchain.
+
+### How do I update Claude Code inside the container?
+
+Cut a new release, which rebuilds the image against the current npm package. For a one-off
+update in a running container, `claude update` works without sudo, because global npm packages
+live in `/usr/local/share/npm-global`, owned by `vscode`. That change is lost on rebuild by
+design — the image tag determines the version.
+
+### Can I use it without VS Code?
+
+Yes. The image is an ordinary OCI image: `docker run -it ghcr.io/nerdy-pro/nerdy-pro-dev-container:latest zsh`.
+The [`devcontainer` CLI](https://github.com/devcontainers/cli) also reads the same
+`devcontainer.json` (`devcontainer up --workspace-folder .`). You lose the automatic gitconfig
+copy and SSH agent forwarding, which are features of the VS Code extension rather than the
+image.
+
+### Why is my `docker pull` failing with unauthorized?
+
+The GitHub Container Registry publishes packages as private by default, even from a public
+repository. Open the package under
+[nerdy-pro packages](https://github.com/orgs/nerdy-pro/packages) → Package settings → Change
+visibility → Public.
 
 ## Publishing
 
