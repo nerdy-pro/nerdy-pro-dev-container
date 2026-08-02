@@ -6,6 +6,7 @@ FROM mcr.microsoft.com/devcontainers/base:ubuntu26.04
 
 LABEL org.opencontainers.image.source=https://github.com/nerdy-pro/nerdy-pro-dev-container
 LABEL org.opencontainers.image.description="Base devcontainer: Node LTS, Claude Code, zsh + oh-my-zsh, fzf"
+LABEL org.opencontainers.image.licenses=MIT
 
 # The base image already provides git, curl, wget, jq, gpg, zsh, oh-my-zsh (for the
 # vscode user), passwordless sudo and the uid/gid 1000 `vscode` user. Only the
