@@ -1,5 +1,11 @@
 # nerdy-pro-dev-container
 
+[![build](https://github.com/nerdy-pro/nerdy-pro-dev-container/actions/workflows/build-image.yml/badge.svg)](https://github.com/nerdy-pro/nerdy-pro-dev-container/actions/workflows/build-image.yml)
+[![release](https://img.shields.io/github/v/release/nerdy-pro/nerdy-pro-dev-container)](https://github.com/nerdy-pro/nerdy-pro-dev-container/releases/latest)
+[![license](https://img.shields.io/github/license/nerdy-pro/nerdy-pro-dev-container)](LICENSE)
+[![ghcr.io](https://img.shields.io/badge/ghcr.io-nerdy--pro%2Fnerdy--pro--dev--container-2496ED?logo=docker&logoColor=white)](https://github.com/nerdy-pro/nerdy-pro-dev-container/pkgs/container/nerdy-pro-dev-container)
+[![Open in Dev Containers](https://img.shields.io/static/v1?label=Dev%20Containers&message=Open&color=blue&logo=visualstudiocode)](https://vscode.dev/redirect?url=vscode%3A%2F%2Fms-vscode-remote.remote-containers%2FcloneInVolume%3Furl%3Dhttps%3A%2F%2Fgithub.com%2Fnerdy-pro%2Fnerdy-pro-dev-container)
+
 Base devcontainer image: **Node LTS + Claude Code + zsh/oh-my-zsh + fzf**, published to
 `ghcr.io/nerdy-pro/nerdy-pro-dev-container`.
 
