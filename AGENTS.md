@@ -18,7 +18,9 @@ nothing to add for either credential type.
 The `claude-config-${devcontainerId}` mount in the template is a **named Docker volume**, not
 a host bind mount. It persists in-container session state across rebuilds; it does not carry
 credentials in from the host. Do not change it to a bind mount, and do not add one of your
-own pointed at the host's `~/.claude`.
+own pointed at the host's `~/.claude`, unless the user has explicitly asked to share Claude's
+memory and chat history with the host — that's a documented opt-in, not something to add on
+your own judgment. See README.md → "What persists across rebuilds".
 
 See README.md → "Authenticating Claude Code".
 

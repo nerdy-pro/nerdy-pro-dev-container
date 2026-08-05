@@ -392,6 +392,13 @@ shared store means one confirmation rather than one per project.
 > the container and the remote will fail to resolve. Use the real hostname in remotes you
 > intend to push from a container, or mount your config in as well.
 
+> **Git aliases work only if they live in `~/.gitconfig` itself.** Aliases under its `[alias]`
+> section are copied in with everything else, so `git st`, `git lg`, or whatever you've defined
+> resolve normally. Aliases pulled in through `include.path` or `includeIf` — a separate
+> `~/.gitalias` or `~/.config/git/config`, say — do not, because VS Code copies only
+> `~/.gitconfig` and not the files it references. Fold the aliases into `~/.gitconfig` directly,
+> or mount the included file in at the same path so the `include.path` line keeps resolving.
+
 ## What's in the image
 
 Everything below is baked in, so nothing is downloaded at container-create time.
@@ -454,6 +461,29 @@ Deliberately not persisted:
 - **Git identity and SSH keys** need no volume — Dev Containers copies your host `~/.gitconfig`
   in and forwards your SSH agent automatically.
 
+**Sharing Claude's memory and chat history with the host.** By design,
+`claude-config-${devcontainerId}` is an isolated Docker volume: nothing written in the
+container is visible from the host's own `~/.claude`, or vice versa. That isolation is
+deliberate — it's also what lets the image guarantee it never needs host Claude Code state to
+authenticate (see [AGENTS.md](AGENTS.md)). If you'd rather the container and the host read and
+write the same memory files and session transcripts — you use Claude Code in both places on the
+same project, say — replace the volume with a bind mount to the host directory:
+
+```jsonc
+"mounts": [
+  "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind"
+  // ...the other three mounts, unchanged
+]
+```
+
+Treat this as a deliberate, per-project opt-in rather than a template default. It merges in
+more than memory and transcripts — settings, project trust, and MCP server config all live
+under the same directory once `CLAUDE_CONFIG_DIR` consolidates them there (see above), so those
+sync too. On Linux hosts the bind mount is only writable if the container's `vscode` user (uid
+1000) matches your host uid; Dev Containers' `updateRemoteUserUID`, on by default, handles that
+remap for you. `${localEnv:HOME}` resolves on macOS and Linux — on Windows use
+`${localEnv:USERPROFILE}`.
+
 ## Dotfiles
 
 Dotfiles are a per-user VS Code setting, not part of this image — add to your **user**
@@ -505,11 +535,24 @@ commits are attributed correctly and your keys sign without ever entering the co
 one manual step is host-key trust: connect once from the container's terminal to accept a new
 git server. See [Git authentication](#git-authentication).
 
+### Do my git aliases work inside the container?
+
+Yes, if they're defined directly in `~/.gitconfig`'s `[alias]` section — that file is copied in
+verbatim. Aliases loaded from a separate file via `include.path`/`includeIf` aren't, since only
+`~/.gitconfig` itself is copied, not the files it references. See
+[Git authentication](#git-authentication).
+
 ### Does my shell history survive a rebuild?
 
 Yes. `HISTFILE` points at `/commandhistory`, which the template backs with a Docker volume.
 Claude Code's settings and session transcripts, the npm cache, and accepted SSH host keys
 persist the same way. See [What persists across rebuilds](#what-persists-across-rebuilds).
+
+### Can I share Claude's memory and chat history with the host?
+
+Yes, but it's an opt-in change to the template, not the default: swap the
+`claude-config-${devcontainerId}` volume mount for a bind mount to your host's `~/.claude`.
+See [What persists across rebuilds](#what-persists-across-rebuilds).
 
 ### How do I pin the image to a specific version?
 
